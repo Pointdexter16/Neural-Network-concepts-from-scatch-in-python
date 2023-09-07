@@ -75,12 +75,38 @@ class Activation_Softmax_categorial_Cross_Entropy():
         self.dinputs=self.dinputs/samples
         
 class Optimizer_SGD:
-    def __init__(self,learning_rate=1.0):
+    def __init__(self,learning_rate=1.0,decay=0.,momentum=0.):
         self.learning_rate=learning_rate
+        self.current_learning_rate=learning_rate
+        self.decay=decay
+        self.iteration=0
+        self.momentum=momentum
 
-    def update_parms(self,layer):
-        layer.weights+= -self.learning_rate*layer.dweights
-        layer.bias+= -self.learning_rate*layer.dbias
+    def pre_update_params(self):
+        if self.decay:
+            self.current_learning_rate=self.learning_rate*(1/(1+self.decay*self.iteration))
+
+
+    def update_params(self,layer):
+        if self.momentum:
+            if not hasattr(layer,"weight_momentum"):
+                layer.weight_momentum=np.zeros_like(layer.weights)
+                layer.bias_momentum=np.zeros_like(layer.bias)
+        
+            weights_update=self.momentum*layer.weight_momentum - self.current_learning_rate*layer.dweights
+            layer.weights_momentum=weights_update
+            bias_update=self.momentum*layer.bias_momentum - self.current_learning_rate*layer.dbias
+            layer.bias_momentum=bias_update
+        
+        else:
+            weights_update= -self.current_learning_rate*layer.dweights
+            bias_update= -self.current_learning_rate*layer.dbias
+        
+        layer.weights+=weights_update
+        layer.bias+=bias_update
+    
+    def post_update_params(self):
+        self.iteration+=1
 
 class Activation_ReLU:
 
@@ -111,7 +137,7 @@ layer1=Dense_layer(2,64)
 relu=Activation_ReLU()
 layer2=Dense_layer(64,3)
 softmax_loss=Activation_Softmax_categorial_Cross_Entropy()
-optimizer=Optimizer_SGD()
+optimizer=Optimizer_SGD(decay=1e-3,momentum=0.5)
 EPOCHS=10001
 for epoch in range(EPOCHS):
     layer1.forward(X)
@@ -122,11 +148,14 @@ for epoch in range(EPOCHS):
     if not epoch%100:
         print(f'epoch: {epoch} ',
               f'loss: {loss:.3f} ',
-              f'acc: {acc:.3f}')
+              f'acc: {acc:.3f}',
+              f'learning rate{optimizer.current_learning_rate}')
 
     softmax_loss.backward(softmax_loss.output,y)
     layer2.backward(softmax_loss.dinputs)
     relu.backward(layer2.dinputs)
     layer1.backward(relu.dinputs)
-    optimizer.update_parms(layer1)
-    optimizer.update_parms(layer2)
+    optimizer.pre_update_params()
+    optimizer.update_params(layer1)
+    optimizer.update_params(layer2)
+    optimizer.post_update_params()
