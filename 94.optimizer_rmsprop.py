@@ -107,6 +107,67 @@ class Optimizer_SGD:
     
     def post_update_params(self):
         self.iteration+=1
+
+class Optimizer_adagrad:
+    def __init__(self,learning_rate=1.0,decay=0.,epsilon=1e-7):
+        self.learning_rate=learning_rate
+        self.current_learning_rate=learning_rate
+        self.decay=decay
+        self.iteration=0
+        self.epsilon=epsilon
+
+    def pre_update_params(self):
+        if self.decay:
+            self.current_learning_rate=self.learning_rate*(1/(1+self.decay*self.iteration))
+
+
+    def update_params(self,layer):
+        if not hasattr(layer,"weight_cache"):
+            layer.weight_cache=np.zeros_like(layer.weights)
+            layer.bias_cache=np.zeros_like(layer.bias)
+        
+        layer.weight_cache+=layer.dweights**2
+        layer.bias_cache+=layer.dbias**2
+
+        layer.weights-=layer.dweights*self.current_learning_rate/(np.sqrt(layer.weight_cache)+ self.epsilon)
+        layer.bias-=layer.dbias*self.current_learning_rate/(np.sqrt(layer.bias_cache)+ self.epsilon)
+
+    
+    def post_update_params(self):
+        self.iteration+=1
+
+
+class Optimizer_rmsprop:
+    def __init__(self,learning_rate=0.001,decay=0.,epsilon=1e-7,rho=0.95):
+        self.learning_rate=learning_rate
+        self.current_learning_rate=learning_rate
+        self.decay=decay
+        self.iteration=0
+        self.epsilon=epsilon
+        self.rho=rho
+
+    def pre_update_params(self):
+        if self.decay:
+            self.current_learning_rate=self.learning_rate*(1/(1+self.decay*self.iteration))
+
+
+    def update_params(self,layer):
+        if not hasattr(layer,"weight_cache"):
+            layer.weight_cache=np.zeros_like(layer.weights)
+            layer.bias_cache=np.zeros_like(layer.bias)
+        
+        layer.weight_cache = self.rho*layer.weight_cache + (1-self.rho)*layer.dweights**2
+        layer.bias_cache = self.rho*layer.bias_cache + (1-self.rho)*layer.dbias**2
+
+        layer.weights-=layer.dweights*self.current_learning_rate/(np.sqrt(layer.weight_cache)+ self.epsilon)
+        layer.bias-=layer.dbias*self.current_learning_rate/(np.sqrt(layer.bias_cache)+ self.epsilon)
+
+    
+    def post_update_params(self):
+        self.iteration+=1
+
+
+
 class Activation_ReLU:
 
     def forward(self,inputs):
@@ -136,7 +197,7 @@ layer1=Dense_layer(2,64)
 relu=Activation_ReLU()
 layer2=Dense_layer(64,3)
 softmax_loss=Activation_Softmax_categorial_Cross_Entropy()
-optimizer=Optimizer_SGD(decay=1e-3,momentum=0.5)
+optimizer=Optimizer_rmsprop(decay=1e-5,learning_rate=0.02,rho=0.999)
 EPOCHS=10001
 for epoch in range(EPOCHS):
     layer1.forward(X)
