@@ -1,25 +1,16 @@
 import numpy as np
-import matplotlib.pyplot as plt
+import nnfs
+from nnfs import datasets
 
-x=np.array(range(5))
-
-def exponential(x):
-    return 2*x**2
-
-def tangent_line(x):
-    return derivative*x + b
-x_array=np.arange(0,5,0.001)
-y=exponential(x_array)
-p_delta=0.0001
-color=['r','g','b','y','k']
-for x in range(5):
-    x_delta=x+p_delta
-    f_x=exponential(x)
-    f_x_delta=exponential(x_delta)
-    derivative=(f_x_delta-f_x)/p_delta
-    b=f_x - derivative*x
-    plt.scatter(x,f_x,c=color[x])
-    to_plot=[x-0.9,x,x+0.9]
-    plt.plot(to_plot,[tangent_line(i) for i in to_plot],c=color[x])
-plt.plot(x_array,y)
-plt.show()
+example_output=[1,2,0,4,0,3,0,0]
+ratio=0.5
+while True:
+    index=np.random.randint(0,len(example_output)-1)
+    example_output[index]=0
+    dropout_no=0
+    for output in example_output:
+        if output==0:
+            dropout_no+=1
+    if dropout_no/len(example_output)>=0.5:
+        break
+print(example_output)

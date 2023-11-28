@@ -166,6 +166,46 @@ class Optimizer_rmsprop:
     def post_update_params(self):
         self.iteration+=1
 
+class Optimizer_adam:
+    def __init__(self,learning_rate=0.001,decay=1e-7,epsilon=1e-7,beta1=0.9,beta2=0.999):
+        self.learning_rate=learning_rate
+        self.current_learning_rate=learning_rate
+        self.decay=decay
+        self.iteration=0
+        self.epsilon=epsilon
+        self.beta1=beta1
+        self.beta2=beta2
+
+    def pre_update_params(self):
+        if self.decay:
+            self.current_learning_rate=self.learning_rate*(1/(1+self.decay*self.iteration))
+
+
+    def update_params(self,layer):
+        if not hasattr(layer,"weight_cache"):
+            layer.weight_cache=np.zeros_like(layer.weights)
+            layer.bias_cache=np.zeros_like(layer.bias)
+            layer.weight_momentum=np.zeros_like(layer.weights)
+            layer.bias_momentum=np.zeros_like(layer.bias)
+        
+        layer.weight_momentum = self.beta1*layer.weight_momentum + (1-self.beta1)*layer.dweights
+        layer.bias_momentum = self.beta1*layer.bias_momentum + (1-self.beta1)*layer.dbias
+        
+        layer.weight_momentum_correct=layer.weight_momentum/(1-self.beta1**(self.iteration+1))
+        layer.bias_momentum_correct=layer.bias_momentum/(1-self.beta1**(self.iteration+1))
+
+        layer.weight_cache= self.beta2*layer.weight_cache + (1-self.beta2)*layer.dweights**2
+        layer.bias_cache= self.beta2*layer.bias_cache + (1-self.beta2)*layer.dbias**2
+
+        layer.weight_cache_correct=layer.weight_cache/(1-self.beta2**(self.iteration+1))
+        layer.bias_cache_correct=layer.bias_cache/(1-self.beta2**(self.iteration+1))
+
+        layer.weights-=self.current_learning_rate*layer.weight_momentum_correct/(np.sqrt(layer.weight_cache_correct)+ self.epsilon)
+        layer.bias-=self.current_learning_rate*layer.bias_momentum_correct/(np.sqrt(layer.bias_cache_correct)+ self.epsilon)
+
+    
+    def post_update_params(self):
+        self.iteration+=1
 
 
 class Activation_ReLU:
@@ -179,7 +219,7 @@ class Activation_ReLU:
 
 class Dense_layer:
     def __init__(self,n_inputs,n_neurons):
-        self.weights=np.random.randn(n_inputs,n_neurons)
+        self.weights=0.01*np.random.randn(n_inputs,n_neurons)
         self.bias=np.zeros((1,n_neurons))
 
     def forward(self,inputs):
@@ -192,12 +232,13 @@ class Dense_layer:
         self.dinputs=np.dot(dvalues,self.weights.T)
 
 X,y=spiral_data(samples=100,classes=3)
+x_test,y_test=spiral_data(samples=100,classes=3)
 
-layer1=Dense_layer(2,64)
-relu=Activation_ReLU()
-layer2=Dense_layer(64,3)
+layer1=Dense_layer(2,50)#earlier it was 64 neurons but due to it the model was 
+relu=Activation_ReLU()  #memorizing the data instead of generalizing it so i reduced the amount of neurons to deal with that
+layer2=Dense_layer(50,3)
 softmax_loss=Activation_Softmax_categorial_Cross_Entropy()
-optimizer=Optimizer_rmsprop(learning_rate=0.02,rho=0.999)
+optimizer=Optimizer_adam(learning_rate=0.02,decay=5e-7)
 EPOCHS=10001
 for epoch in range(EPOCHS):
     layer1.forward(X)
@@ -219,3 +260,9 @@ for epoch in range(EPOCHS):
     optimizer.update_params(layer1)
     optimizer.update_params(layer2)
     optimizer.post_update_params()
+
+layer1.forward(x_test)
+relu.forward(layer1.output)
+layer2.forward(relu.output)
+loss,acc=softmax_loss.forward(layer2.output,y_test)
+print(f'validation, loss:{loss:.3f}, acc:{acc:.3f}')
