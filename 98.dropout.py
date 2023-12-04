@@ -1,7 +1,6 @@
 import numpy as np
 import nnfs
 from nnfs.datasets import spiral_data
-from time import sleep
 
 nnfs.init()
 
@@ -230,9 +229,10 @@ class Activation_ReLU:
         self.dinputs=dvalues.copy()
         self.dinputs[self.output<=0]=0
 
+
 class dropout_layer:
     def __init__(self,dropout_rate):
-        self.acceptance_rate=dropout_rate
+        self.acceptance_rate=1-dropout_rate
 
     def forward(self,inputs):
         self.binary_mask=np.random.binomial(1,self.acceptance_rate,inputs.shape)/self.acceptance_rate

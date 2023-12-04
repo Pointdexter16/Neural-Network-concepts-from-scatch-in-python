@@ -1,18 +1,29 @@
 import numpy as np
 import nnfs
-from nnfs.datasets import spiral_data
+from nnfs.datasets import spiral_data,sine_data
+import matplotlib.pyplot as plt
 
 nnfs.init()
 
 class Loss:
 
     def accuracy(self,y_pred,y_true):
-        if(len(y_true.shape)==2):
-            y_true=np.argmax(y_true,axis=1)
-        y_pred=np.argmax(y_pred,axis=1)
-        acc=np.mean(y_pred==y_true)
-        return acc
+        if self.type=="Categorical_Cross_Entropy":
+            if(len(y_true.shape)==2):
+                y_true=np.argmax(y_true,axis=1)
+            y_pred=np.argmax(y_pred,axis=1)
+            acc=np.mean(y_pred==y_true)
 
+        elif self.type=="binary_cross_entropy_loss":
+            pred=(y_pred>0.5)*1
+            acc=np.mean(pred==y_true)
+        
+        else:
+            precision = np.std(y_true)/250
+            acc=np.mean(np.abs(y_pred-y_true)<precision)
+
+        return acc
+        
     def calculate(self,output,y):
         
         sample_losses=self.forward(output,y)
@@ -32,7 +43,9 @@ class Loss:
         return regularization_layer_loss
 
 class Categorical_Cross_Entropy(Loss):
-
+    def __init__(self):
+        self.type="Categorical_Cross_Entropy"
+        
     def forward(self,y_pred,y_true):
         samples=len(y_true)
         y_pred_clipped=np.clip(y_pred,1e-7,1-1e-7)
@@ -55,6 +68,59 @@ class Categorical_Cross_Entropy(Loss):
         self.dinputs = - y_true/dvalues
         self.dinputs = self.dinputs/samples
 
+class binary_cross_entropy_loss(Loss):
+    
+    def __init__(self):
+        self.type="binary_cross_entropy_loss"
+
+    def forward(self,y_pred,y_true):
+        y_pred_clip=np.clip(y_pred,1e-7,1-1e-7)
+        sample_loss= -(y_true*(np.log(y_pred_clip))  +   (1-y_true)*np.log(1-y_pred_clip))
+        sample_loss=np.mean(sample_loss,axis=-1)
+        return sample_loss
+
+    def backward(self,dvalues,y_true):
+        samples=len(dvalues)
+        outputs=len(dvalues[0])
+        clipped_values=np.clip(dvalues,1e-7,1-1e-7)
+        self.dinputs=-((y_true/clipped_values)-((1-y_true)/(1-clipped_values)))/outputs
+        self.dinputs/=samples
+
+class mean_squared_error(Loss):
+
+    def __init__(self):
+        self.type="mean_squared_error"
+
+    def forward(self,y_pred,y_true):
+
+        sample_loss=np.mean((y_true-y_pred)**2,axis=-1)
+        return sample_loss
+
+    def backward(self,dvalues,y_true):
+
+        samples=len(dvalues)
+        outputs=len(dvalues[0])
+        self.dinputs=-2*(y_true-dvalues)/outputs
+        self.dinputs=self.dinputs/samples   
+
+class mean_absolute_error(Loss):
+
+    def __init__(self):
+        self.type="mean_absolute_error"
+
+    def forward(self,y_pred,y_true):
+
+        sample_loss=np.mean(np.abs(y_true-y_pred),axis=-1)
+        return sample_loss
+
+    def backward(self,dvalues,y_true):
+        
+        samples=len(dvalues)
+        outputs=len(dvalues[0])
+        self.dinputs=np.sign(y_true-dvalues)/outputs
+        self.dinputs=self.dinputs/samples
+
+
 class Activation_softmax:
 
     def forward(self,inputs):
@@ -67,6 +133,14 @@ class Activation_softmax:
             single_output=single_output.reshape(-1,1)
             jacobian_matrix=np.diagflat(single_output)-np.dot(single_output,single_output.T)
             self.dinputs[index]=np.dot(jacobian_matrix,single_dvalue)
+    
+class Activation_linear:
+    
+    def forward(self,inputs):
+        self.output=inputs
+
+    def backward(self,dvalues):
+        self.dinputs=dvalues.copy()
 
 class Activation_Softmax_categorial_Cross_Entropy():
     def __init__(self):
@@ -85,6 +159,14 @@ class Activation_Softmax_categorial_Cross_Entropy():
         self.dinputs=dvalues.copy()
         self.dinputs[range(samples),y]-=1
         self.dinputs=self.dinputs/samples
+
+class Activation_sigmoid:
+    
+    def forward(self,inputs):
+        self.output=1/(1+np.exp(-inputs))
+
+    def backward(self,dvalues):
+        self.dinputs=dvalues*self.output*(1-self.output)
         
 class Optimizer_SGD:
     def __init__(self,learning_rate=1.0,decay=0.,momentum=0.):
@@ -220,7 +302,7 @@ class Optimizer_adam:
         self.iteration+=1
 
 
-class Activation_ReLU:
+class Activation_Relu:
 
     def forward(self,inputs):
         self.output=np.maximum(inputs,0)
@@ -229,11 +311,22 @@ class Activation_ReLU:
         self.dinputs=dvalues.copy()
         self.dinputs[self.output<=0]=0
 
+class dropout_layer:
+    def __init__(self,dropout_rate):
+        self.acceptance_rate=1-dropout_rate
+
+    def forward(self,inputs):
+        self.binary_mask=np.random.binomial(1,self.acceptance_rate,inputs.shape)/self.acceptance_rate
+        self.output=inputs*self.binary_mask
+
+    def backward(self,dvalues):
+        self.dinputs=self.binary_mask*dvalues
+
 class Dense_layer:
     def __init__(self,n_inputs,n_neurons,weight_regularizer_l1=0,
                  bias_regularizer_l1=0,weight_regularizer_l2=0,
                  bias_regularizer_l2=0):
-        self.weights=0.01*np.random.randn(n_inputs,n_neurons)
+        self.weights=0.1*np.random.randn(n_inputs,n_neurons)
         self.bias=np.zeros((1,n_neurons))
         self.weight_regularizer_l1=weight_regularizer_l1
         self.bias_regularizer_l1=bias_regularizer_l1
@@ -266,21 +359,29 @@ class Dense_layer:
 
         self.dinputs=np.dot(dvalues,self.weights.T)
 
-X,y=spiral_data(samples=1000,classes=3)
-x_test,y_test=spiral_data(samples=100,classes=3)
+X,y=sine_data()
 
-layer1=Dense_layer(2,512,weight_regularizer_l2=5e-4,bias_regularizer_l2=5e-4)
-relu=Activation_ReLU()
-layer2=Dense_layer(512,3)
-softmax_loss=Activation_Softmax_categorial_Cross_Entropy()
-optimizer=Optimizer_adam(learning_rate=0.02,decay=5e-7)
+layer1=Dense_layer(1,64)
+relu1=Activation_Relu()
+layer2=Dense_layer(64,64)
+relu2=Activation_Relu()
+layer3=Dense_layer(64,1)
+linear=Activation_linear()
+loss_func=mean_squared_error()
+optimizer=Optimizer_adam(learning_rate=0.01,decay=1e-3)
 EPOCHS=10001
 for epoch in range(EPOCHS):
     layer1.forward(X)
-    relu.forward(layer1.output)
-    layer2.forward(relu.output)
-    loss,acc=softmax_loss.forward(layer2.output,y)
-    reg_loss=softmax_loss.loss.regularization_loss(layer1) + softmax_loss.loss.regularization_loss(layer2)
+    relu1.forward(layer1.output)
+    layer2.forward(relu1.output)
+    relu2.forward(layer2.output)
+    layer3.forward(relu2.output)
+    linear.forward(layer3.output)
+    loss,acc=loss_func.calculate(linear.output,y),loss_func.accuracy(linear.output,y)
+    try:
+        reg_loss=loss_func.regularization_loss(layer1) + loss_func.regularization_loss(layer2)
+    except:
+        reg_loss=0
     data_loss= loss + reg_loss
 
     if not epoch%100:
@@ -289,18 +390,26 @@ for epoch in range(EPOCHS):
               f'acc: {acc:.3f} ',
               f'learning rate{optimizer.current_learning_rate}')
 
-    softmax_loss.backward(softmax_loss.output,y)
-    layer2.backward(softmax_loss.dinputs)
-    relu.backward(layer2.dinputs)
-    layer1.backward(relu.dinputs)
+    loss_func.backward(linear.output,y)
+    linear.backward(loss_func.dinputs)
+    layer3.backward(linear.dinputs)
+    relu2.backward(layer3.dinputs)
+    layer2.backward(relu2.dinputs)
+    relu1.backward(layer2.dinputs)
+    layer1.backward(relu1.dinputs)
     optimizer.pre_update_params()
     optimizer.update_params(layer1)
     optimizer.update_params(layer2)
     optimizer.post_update_params()
 
-layer1.forward(x_test)
-relu.forward(layer1.output)
-layer2.forward(relu.output)
-loss,acc=softmax_loss.forward(layer2.output,y_test)
+layer1.forward(X)
+relu1.forward(layer1.output)
+layer2.forward(relu1.output)
+relu2.forward(layer2.output)
+layer3.forward(relu2.output)
+linear.forward(layer3.output)
+loss,acc=loss_func.calculate(linear.output,y),loss_func.accuracy(linear.output,y)
 print(f'validation, loss:{loss:.3f}, acc:{acc:.3f}')
-
+plt.plot(X,y)
+plt.plot(X,linear.output)
+plt.show()
